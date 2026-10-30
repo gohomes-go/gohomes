@@ -1,0 +1,25 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 관리자 구글 계정 — config.js 의 adminEmails 와 똑같이 맞춰 주세요
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email in ['gohomesgogo@gmail.com'];
+    }
+    // 매물 공개 정보: 손님은 공개(public=true) 매물만 읽기, 쓰기는 관리자만
+    match /listings/{id} {
+      allow read: if resource.data.public == true || isAdmin();
+      allow write: if isAdmin();
+    }
+    // 연락처·비고: 관리자만
+    match /private/{id} {
+      allow read, write: if isAdmin();
+    }
+    // 브랜드명 등 사이트 설정
+    match /config/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}
