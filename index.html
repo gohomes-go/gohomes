@@ -593,6 +593,14 @@ table.grid td.nowrap{white-space:nowrap}
 .inq-item .msg{margin-top:6px;font-size:13.5px;white-space:pre-wrap;color:var(--ink2)}
 .inq-item .act{display:flex;gap:6px;margin-top:10px}
 @media (max-width:900px){ .inq-grid{grid-template-columns:1fr} .inq-in{padding:34px 16px 40px} .kscale{bottom:20px} }
+/* 손님 화면: 가격표를 '영역' 가운데에, 꼬리 없이 */
+#map.cust-map .pin.tag{transform:translate(-50%,-50%);border-radius:999px;padding:4px 10px}
+#map.cust-map .pin.tag::after{display:none}
+#map.cust-map .pin.tag.sel,#map.cust-map .pin.tag.hover{transform:translate(-50%,-50%) scale(1.08)}
+#map.cust-map.zoomed-out .pin.tag:not(.sel):not(.hover){width:16px;height:16px;border:3px solid rgba(255,255,255,.9);box-shadow:0 0 0 6px var(--accent-mid),0 1px 4px rgba(0,0,0,.25)}
+#map.cust-map .map-hint:not(.cust-hint),#map.cust-map .map-legend{display:none!important}
+.cust-hint{display:none}
+#map.cust-map .cust-hint{display:block!important}
 @media print{#sidebar,.filterbar,.listbar,.topbar .right,#map,.kebab,.dt-actions{display:none!important}}
 </style>
 </head>
@@ -631,6 +639,7 @@ table.grid td.nowrap{white-space:nowrap}
           <button class="map-btn" id="fsBtn" title="전체화면"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button>
           <div class="map-legend"><span><i style="background:#3182f6"></i>임대</span><span><i style="background:#f04452"></i>매매</span><span><i style="background:#7b61ff"></i>임대·매매</span><span><i style="background:#c4cad1"></i>종결·미정</span></div>
           <div class="map-hint">동그라미를 누르거나 확대하면 매물 가격이 보여요</div>
+          <div class="map-hint cust-hint">숫자는 그 근처에 있는 매물 수예요 · 정확한 위치는 상담 시 안내</div>
         </div>
         <section id="tablePane"></section>
       </div>
@@ -1047,7 +1056,7 @@ function renderShowcase(){
 }
 function renderTopButtons(){
   $('.topbar h1').innerHTML = `<span class="hd-brand"><img src="${LOGO_SRC}" alt="">${esc(S.settings.brand||'')}</span>${CUSTOMER?'':'<span class="hd-admin">관리자</span>'}`;
-  $('#app').classList.toggle('cust', CUSTOMER);
+  $('#app').classList.toggle('cust', CUSTOMER); $('#map').classList.toggle('cust-map', CUSTOMER);
   $('#topRight').innerHTML = CUSTOMER ? contactBtns('', false) : `<button class="btn primary" id="addBtn">${I.plus}매물 등록</button>`;
   let fb=$('#ctaBar'); if(!fb){ fb=document.createElement('div'); fb.id='ctaBar'; document.body.appendChild(fb); }
   fb.innerHTML = CUSTOMER ? contactBtns(`${S.settings.brand} 홈페이지 보고 연락드립니다`, false) : ''; document.body.classList.toggle('has-cta', !!fb.innerHTML);
@@ -1291,7 +1300,7 @@ function mountKakao(){
   const zcls=()=>host.classList.toggle('zoomed-out', map.getZoom()<14);
   k.event.addListener(km,'zoom_changed', ()=>{ zcls(); kScale(); });
   let lastLv=km.getLevel();
-  k.event.addListener(km,'idle', ()=>{ kScale(); if (S.syncBounds) renderList(); if (km.getLevel()>=7 || lastLv>=7) kDraw(); lastLv=km.getLevel(); });
+  k.event.addListener(km,'idle', ()=>{ kScale(); if (S.syncBounds) renderList(); if (CUSTOMER || km.getLevel()>=7 || lastLv>=7) kDraw(); lastLv=km.getLevel(); });
   k.event.addListener(km,'click', e=>{ if (S.pickFor) finishPick({lat:e.latLng.getLat(), lng:e.latLng.getLng()}); });
   window.addEventListener('resize', ()=>km.relayout());
   document.addEventListener('fullscreenchange', ()=>setTimeout(()=>km.relayout(),100));
@@ -1316,7 +1325,7 @@ function mountKakao(){
     const hot=g.some(r=>r._d.tags.includes('급매'));
     const w=document.createElement('div'); w.className='kpin';
     w.innerHTML=`<div class="clu ${hot?'hot':''}" style="width:${sz}px;height:${sz}px;position:absolute;left:${-sz/2}px;top:${-sz/2}px"><b>${n}</b></div>`;
-    w.addEventListener('click', ev=>{ ev.stopPropagation(); const b=new k.LatLngBounds(); g.forEach(r=>b.extend(new k.LatLng(r.lat,r.lng))); km.setBounds(b,60,60,60,60); if (km.getLevel()>=km.__lastClickLv) km.setLevel(Math.max(1,km.__lastClickLv-2)); });
+    w.addEventListener('click', ev=>{ ev.stopPropagation(); const lv=km.getLevel(), minLv=CUSTOMER?LV(15):1; if (lv<=minLv){ km.panTo(new k.LatLng(lat,lng)); return; } const b=new k.LatLngBounds(); g.forEach(r=>b.extend(new k.LatLng(r.lat,r.lng))); km.setBounds(b,60,60,60,60); if (km.getLevel()>=lv) km.setLevel(Math.max(minLv,lv-2)); else if (km.getLevel()<minLv) km.setLevel(minLv); });
     w.addEventListener('mousedown', ()=>{ km.__lastClickLv=km.getLevel(); });
     const ov=new k.CustomOverlay({position:new k.LatLng(lat,lng), content:w, xAnchor:0, yAnchor:0, zIndex:5, clickable:true});
     ov.setMap(km); kOvs.push(ov);
@@ -1324,10 +1333,10 @@ function mountKakao(){
   function kDraw(){
     kOvs.forEach(o=>o.setMap(null)); kOvs=[]; markers={};
     const rows=filtered().filter(r=>r._d.hasGeo);
-    if (km.getLevel()<7){ rows.forEach(kSingle); return; }
-    const pj=km.getProjection(), cell=64, groups=new Map();
+    if (!CUSTOMER && km.getLevel()<7){ rows.forEach(kSingle); return; }
+    const pj=km.getProjection(), cell=CUSTOMER?96:64, groups=new Map();
     for (const r of rows){ const pt=(pj.pointFromCoords||pj.containerPointFromCoords).call(pj, new k.LatLng(r.lat,r.lng)); const key=Math.floor(pt.x/cell)+':'+Math.floor(pt.y/cell); if(!groups.has(key)) groups.set(key,[]); groups.get(key).push(r); }
-    for (const g of groups.values()){ if (g.length===1) kSingle(g[0]); else kCluster(g); }
+    for (const g of groups.values()){ if (g.length===1 && !CUSTOMER) kSingle(g[0]); else kCluster(g); }
   }
   renderMarkers=function(){
     const rows=filtered().filter(r=>r._d.hasGeo);
@@ -1394,6 +1403,7 @@ function shortPrice(r){
 }
 function pinHtml(r){ const d=r._d; const lb = d.typeKey==='both'?'임·매':d.typeKey==='rent'?'임':d.typeKey==='sale'?'매':''; const hot=d.tags.includes('급매'); return `<div class="pin tag c-${d.typeKey} ${hot?'hot':''} ${d.statusKey==='종결'?'done':''} ${d.approx?'approx':''} ${r.id===S.selectedId?'sel':''}">${hot?'<i>급매</i>':''}${lb?`<b>${lb}</b>`:''}${esc(shortPrice(r))}</div>`; }
 function renderMarkers(){
+  if (markerLayer && markerLayer.options){ markerLayer.options.singleMarkerMode=CUSTOMER; markerLayer.options.disableClusteringAtZoom=CUSTOMER?99:14; }
   markerLayer.clearLayers(); markers={};
   const rows = filtered().filter(r=>r._d.hasGeo);
   for (const r of rows){
