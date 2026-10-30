@@ -1022,7 +1022,7 @@ function delRow(id){ const r=byId(id); if(!r) return; if(!confirm(`'${r.addr}' ë
 /* ---------- map ---------- */
 let map, markerLayer, markers={};
 function initMap(){
-  map = L.map('map', { zoomControl:true, attributionControl:true }).setView(DEFAULT_CENTER, DEFAULT_ZOOM);
+  map = L.map('map', { zoomControl:true, attributionControl:true, maxZoom:19, minZoom:6 }).setView(DEFAULT_CENTER, DEFAULT_ZOOM);
   setTiles(S.settings.tiles);
   markerLayer = (L.markerClusterGroup ? L.markerClusterGroup({
       disableClusteringAtZoom:14, maxClusterRadius:64, showCoverageOnHover:false, spiderfyOnMaxZoom:true, animate:true,
