@@ -957,18 +957,41 @@ function openEdit(id){
     <div class="field full"><label>사진 URL (쉼표 또는 줄바꿈으로 여러 개)</label><textarea name="photos" style="min-height:48px">${v('photos')}</textarea></div>
   </div><div class="actions"><button class="btn" id="edCancel">취소</button><button class="btn primary sm" id="edSave">저장</button></div>`);
   $('#edCancel').onclick=closeModal;
-  $('#edGeo').onclick=async()=>{ const addr=el.querySelector('[name=addr]').value.trim(); if(!addr){ toast('소재지를 먼저 입력하세요'); return; } try{ const g=await kakaoGeocode(addr); if(!g){ toast('좌표를 찾지 못했습니다'); return; } el.querySelector('[name=lat]').value=g.lat; el.querySelector('[name=lng]').value=g.lng; toast(`좌표 찾음: ${g.matched}${g.approx?' (대략)':''}`); }catch(e){ toast(e.message); } };
-  $('#edSave').onclick=()=>{
+  // 주소 → 위치 자동 찾기
+  let coordsTouched=false, autoGeo=null, geoBusy=null;
+  const fLat=el.querySelector('[name=lat]'), fLng=el.querySelector('[name=lng]'), fAddr=el.querySelector('[name=addr]');
+  [fLat,fLng].forEach(f=>f.addEventListener('input',()=>{ coordsTouched=true; autoGeo=null; }));
+  const geoHint=document.createElement('div'); geoHint.className='hint'; geoHint.style.color='#2563eb'; fAddr.parentElement.appendChild(geoHint);
+  async function lookup(addr, quiet){
+    if (!S.settings.kakaoKey){ if(!quiet) toast('카카오 키가 없어 위치를 자동으로 찾을 수 없습니다. 설정에서 키를 넣어 주세요.', 5000); return null; }
+    geoHint.textContent='📍 위치 찾는 중…';
+    try{ const g=await kakaoGeocode(addr);
+      if (!g){ geoHint.style.color='#dc2626'; geoHint.textContent='📍 위치를 찾지 못했습니다. 저장 후 "지도에서 위치 지정"으로 찍어 주세요.'; return null; }
+      fLat.value=g.lat; fLng.value=g.lng; coordsTouched=false; autoGeo={...g, addr};
+      geoHint.style.color=g.approx?'#b45309':'#16a34a'; geoHint.textContent=`📍 ${g.matched}${g.approx?' (대략 위치 — 저장 후 지도에서 확인)':''}`; return g;
+    }catch(e){ geoHint.style.color='#dc2626'; geoHint.textContent='📍 '+e.message; return null; }
+  }
+  fAddr.addEventListener('change', ()=>{ const a=fAddr.value.trim(); if (!a) return; if (coordsTouched && fLat.value && fLng.value) return; if (r && a===r.addr && fLat.value && fLng.value) return; geoBusy=lookup(a, true); });
+  $('#edGeo').onclick=async()=>{ const addr=fAddr.value.trim(); if(!addr){ toast('소재지를 먼저 입력하세요'); return; } await lookup(addr, false); };
+  $('#edSave').onclick=async()=>{
     const get=k=>el.querySelector(`[name=${k}]`).value;
     if (!get('addr').trim()){ toast('소재지는 필수입니다'); return; }
+    const sv=$('#edSave'); sv.disabled=true;
+    if (geoBusy) await geoBusy;
+    const addrNow=get('addr').trim(), noCoords=!fLat.value.trim()||!fLng.value.trim();
+    const addrChanged = r && addrNow!==r.addr && !coordsTouched && !(autoGeo && autoGeo.addr===addrNow);
+    if (noCoords || addrChanged){ sv.textContent='위치 찾는 중…'; if (addrChanged){ fLat.value=''; fLng.value=''; } await lookup(addrNow, true); }
+    if (!document.body.contains(sv)) return;
     const o = r ? exportRow(r) : {id:uid()};
     for (const c of COLS) o[c.key]=get(c.key);
     const nr = normRow(o, r?r._i:S.rows.length);
     if (r && r._d.hasGeo && nr._d.hasGeo && (r.lat!==nr.lat || r.lng!==nr.lng)) nr.approx=false;
+    if (autoGeo && nr._d.hasGeo && +nr.lat===+autoGeo.lat && +nr.lng===+autoGeo.lng) nr.approx=!!autoGeo.approx;
     derive(nr);
     if (r){ const i=S.rows.findIndex(x=>x.id===r.id); S.rows[i]=nr; } else S.rows.push(nr);
     if (nr._d.hasGeo && nr.addr) S.geo[nr.addr]={lat:nr.lat,lng:nr.lng,approx:nr.approx,at:Date.now()};
-    persist(); closeModal(); renderAll(); select(nr.id,{pan:true}); toast(r?'수정되었습니다':'등록되었습니다');
+    persist(); closeModal(); renderAll(); select(nr.id,{pan:true});
+    toast((r?'수정되었습니다':'등록되었습니다') + (nr._d.hasGeo ? (nr.approx?' · 대략 위치로 표시 (지도에서 확인해 주세요)':'') : (S.settings.kakaoKey?' · 위치를 찾지 못해 지도에 없습니다. "지도에서 위치 지정"으로 찍어 주세요':' · 위치가 없어 지도에 없습니다 (설정에서 카카오 키를 넣으면 자동으로 찾아요)')), 5500);
   };
   setTimeout(()=>el.querySelector('[name=addr]').focus(), 50);
 }
@@ -977,7 +1000,7 @@ function openEdit(id){
 function openSettings(){
   const st=S.settings;
   const el=openModal(`<h3>설정</h3>
-    <p class="help">좌표 자동 찾기는 <b>카카오 로컬 API</b>를 사용합니다. <a href="https://developers.kakao.com" target="_blank" rel="noopener">developers.kakao.com</a> → 내 애플리케이션 → 애플리케이션 추가 → <b>앱 키 › REST API 키</b>를 복사해 붙여넣으세요. 앱 설정 › <b>카카오맵 › 활성화 설정 ON</b> 이 필요합니다. 키는 이 브라우저에만 저장됩니다. (HTML 파일을 더블클릭해 연 상태에서도 동작합니다)</p>
+    <p class="help">좌표 자동 찾기는 <b>카카오 로컬 API</b>를 사용합니다. <a href="https://developers.kakao.com" target="_blank" rel="noopener">developers.kakao.com</a> → 내 애플리케이션 → 애플리케이션 추가 → <b>앱 키 › REST API 키</b>를 복사해 붙여넣으세요. 앱 설정 › <b>카카오맵 › 활성화 설정 ON</b> 이 필요합니다. ${CLOUD?'관리자로 로그인한 상태에서 저장하면 다른 컴퓨터·휴대폰에도 자동으로 적용됩니다 (손님에게는 보이지 않음).':'키는 이 브라우저에만 저장됩니다.'} (HTML 파일을 더블클릭해 연 상태에서도 동작합니다)</p>
     <div class="form">
       <div class="field full"><label>카카오 REST API 키</label><input name="kakaoKey" value="${esc(st.kakaoKey)}" placeholder="32자리 키" autocomplete="off"></div>
       <div class="field"><label>기본 지역 (소재지 앞에 붙는 시/도)</label><input name="region" value="${esc(st.region)}"></div>
@@ -987,7 +1010,8 @@ function openSettings(){
     </div>
     <div class="actions"><div class="left">${CLOUD?'':'<button class="btn" id="stReset">내장 데이터로 되돌리기</button>'}<button class="btn danger" id="stClear">${CLOUD?'모든 매물 삭제':'모든 데이터 삭제'}</button></div><button class="btn" id="stCancel">취소</button><button class="btn primary sm" id="stSave">저장</button></div>`);
   $('#stCancel').onclick=closeModal;
-  $('#stSave').onclick=()=>{ for(const k of ['kakaoKey','region','brand','user','tiles']) S.settings[k]=el.querySelector(`[name=${k}]`).value.trim(); persist(); if (CLOUD && !CUSTOMER && db) db.collection('config').doc('site').set({brand:S.settings.brand, region:S.settings.region},{merge:true}).catch(e=>toast('브랜드명 온라인 저장 실패: '+(e.code||e.message),5000)); closeModal(); setTiles(S.settings.tiles); renderAll(); toast('설정이 저장되었습니다'); };
+  $('#stSave').onclick=()=>{ for(const k of ['kakaoKey','region','brand','user','tiles']) S.settings[k]=el.querySelector(`[name=${k}]`).value.trim(); persist(); if (CLOUD && !CUSTOMER && db) db.collection('adminConfig').doc('settings').set({kakaoKey:S.settings.kakaoKey},{merge:true}).catch(e=>toast('카카오 키 온라인 저장 실패: '+(e.code||e.message),5000));
+    if (CLOUD && !CUSTOMER && db) db.collection('config').doc('site').set({brand:S.settings.brand, region:S.settings.region},{merge:true}).catch(e=>toast('브랜드명 온라인 저장 실패: '+(e.code||e.message),5000)); closeModal(); setTiles(S.settings.tiles); renderAll(); toast('설정이 저장되었습니다'); };
   if ($('#stReset')) $('#stReset').onclick=()=>{ if(!EMBED||!EMBED.rows){ toast('내장 데이터가 없습니다'); return; } if(!confirm('현재 매물을 모두 지우고 파일에 내장된 원본 데이터로 되돌릴까요? (좌표 캐시는 유지)')) return; S.rows=EMBED.rows.map((o,i)=>normRow(o,i)); applyGeoCache(); S.fitted=false; persist(); closeModal(); renderAll(); toast('원본 데이터로 되돌렸습니다'); };
   $('#stClear').onclick=()=>{ if (CLOUD){ if(!confirm('온라인에 저장된 매물을 모두 삭제할까요? 되돌릴 수 없습니다.')) return; if(!confirm('정말 전부 삭제할까요? (삭제 전 "엑셀 저장"으로 백업을 권장합니다)')) return; S.rows=[]; S.selectedId=null; closeDetail(); persist(); closeModal(); renderAll(); toast('모든 매물을 삭제했습니다'); return; }
     if(!confirm('매물, 좌표 캐시, 설정을 모두 삭제할까요?')) return; Object.values(LS).forEach(k=>localStorage.removeItem(k)); location.reload(); };
@@ -1188,6 +1212,7 @@ function cloudSubscribe(){
   const fail = e => { console.error(e); toast('매물을 불러오지 못했습니다 ('+(e.code||e.message)+')', 7000); };
   const q = CUSTOMER ? db.collection('listings').where('public','==',true) : db.collection('listings');
   unsubs.push(q.onSnapshot(s=>{ pubMap=new Map(s.docs.map(d=>[d.id,d.data()])); gotPub=true; applyServer(); }, fail));
+  if (!CUSTOMER) unsubs.push(db.collection('adminConfig').doc('settings').onSnapshot(s=>{ const k=(s.data()||{}).kakaoKey; if (k && k!==S.settings.kakaoKey){ S.settings.kakaoKey=k; lsSet(LS.settings, S.settings); renderList(); } }, ()=>{}));
   if (!CUSTOMER) unsubs.push(db.collection('private').onSnapshot(s=>{ privMap=new Map(s.docs.map(d=>[d.id,d.data()])); gotPriv=true; applyServer(); }, fail));
 }
 function cloudLogin(){
