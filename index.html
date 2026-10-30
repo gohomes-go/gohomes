@@ -1275,7 +1275,7 @@ function mountKakao(){
   const LV=zz=>Math.max(1,Math.min(14,Math.round(20-zz))), ZZ=l=>20-l;
   const km=new k.Map(el,{center:new k.LatLng(c[0],c[1]), level:LV(z)}); kmap=km;
   km.setMaxLevel(12); km.setMinLevel(CUSTOMER?LV(15):1);
-  km.addControl(new k.ZoomControl(), k.ControlPosition.RIGHT);
+  km.addControl(new k.ZoomControl(), k.ControlPosition.BOTTOMRIGHT);
   KAKAO_ON=true;
   map={
     getZoom(){ return ZZ(km.getLevel()); },
@@ -1335,7 +1335,7 @@ function mountKakao(){
   };
   showArea=function(r){ if (areaCircle){ areaCircle.setMap(null); areaCircle=null; } if (!CUSTOMER||!r||!r._d.hasGeo) return; const col=getComputedStyle(document.documentElement).getPropertyValue('--accent-strong').trim()||'#8c7506'; areaCircle=new k.Circle({center:new k.LatLng(r.lat,r.lng), radius:380, strokeWeight:1.5, strokeColor:col, strokeOpacity:.9, fillColor:col, fillOpacity:.13}); areaCircle.setMap(km); };
   // 축척
-  let sc=document.getElementById('kScale'); if(!sc){ sc=document.createElement('div'); sc.id='kScale'; sc.className='kscale'; sc.innerHTML='<i></i><span></span>'; host.appendChild(sc); }
+  // 축척은 카카오맵 기본 축척(왼쪽 아래)을 사용
   host.classList.remove('map-wait');
   zcls(); kScale(); S.fitted=false; renderMarkers();
   if (S.selectedId){ const r=byId(S.selectedId); if (r) showArea(r); }
